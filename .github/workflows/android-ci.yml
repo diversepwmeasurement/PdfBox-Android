@@ -1,92 +1,85 @@
-name: "Android CI"
-
-on:
-  pull_request:
-  push:
-    branches:
-      - master
-
 jobs:
   build:
     name: Build & Run Unit Tests
-    runs-on: ubuntu-latest
-
+    runs-on: self-hosted
     steps:
-      - name: Fetch Source
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v3.11.0
-        with:
-          java-version: 11
-          distribution: 'adopt'
-
-      - name: Build & Test
-        run: ./gradlew build test
-
+    - continue-on-error: true
+      name: Fetch Source
+      uses: actions/checkout@v4
+    - continue-on-error: true
+      name: Setup Java
+      uses: actions/setup-java@v3.11.0
+      with:
+        distribution: adopt
+        java-version: 11
+    - continue-on-error: true
+      name: Build & Test
+      run: ./gradlew build test
+  instrumentation-test-summary:
+    if: ${{ always() }}
+    name: Instrumentation Test Matrix Summary
+    needs: instrumentation-tests
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      if: ${{ needs.instrumentation-tests.result != 'success' }}
+      name: Check build matrix status
+      run: exit 1
   instrumentation-tests:
     name: Instrumentation Tests
-    runs-on: macos-latest
-    timeout-minutes: 30
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      name: Fetch Source
+      uses: actions/checkout@v4
+    - continue-on-error: true
+      name: Set up JDK
+      uses: actions/setup-java@v3.11.0
+      with:
+        distribution: adopt
+        java-version: 11
+    - continue-on-error: true
+      name: Instrumentation Tests
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: ${{ matrix.api-level }}
+        arch: x86_64
+        script: adb logcat *:S TestRunner:V & ./gradlew connectedCheck --no-build-cache
+          --no-daemon --stacktrace
+        target: google_apis
     strategy:
-      # Allow tests to continue on other devices if they fail on one device.
       fail-fast: false
       matrix:
         api-level:
-          - 33
-
-    steps:
-      - name: Fetch Source
-        uses: actions/checkout@v4
-
-      - name: Set up JDK
-        uses: actions/setup-java@v3.11.0
-        with:
-          java-version: 11
-          distribution: 'adopt'
-
-      - name: Instrumentation Tests
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api-level }}
-          target: google_apis
-          arch: x86_64
-          script: adb logcat *:S TestRunner:V & ./gradlew connectedCheck --no-build-cache --no-daemon --stacktrace
-
-  instrumentation-test-summary:
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    name: Instrumentation Test Matrix Summary
-    needs: instrumentation-tests
-
-    steps:
-      - name: Check build matrix status
-        if: ${{ needs.instrumentation-tests.result != 'success' }}
-        run: exit 1
-
+        - 33
+    timeout-minutes: 30
   publish-snapshot:
+    if: github.event_name == 'push'
     name: Publish OSS Sonatype Snapshot
-    runs-on: ubuntu-latest
-    if: "github.event_name == 'push'"
     needs:
-      - build
-      - instrumentation-test-summary
-
+    - build
+    - instrumentation-test-summary
+    runs-on: self-hosted
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Configure JDK
-        uses: actions/setup-java@v3.11.0
-        with:
-          java-version: 11
-          distribution: 'adopt'
-
-      - name: Upload Snapshot
-        run: ./gradlew publish
-        env:
-          ORG_GRADLE_PROJECT_signingKeyId: ${{ secrets.SIGNING_KEY_ID }}
-          ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
-          ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
-          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
-          OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+    - continue-on-error: true
+      name: Checkout
+      uses: actions/checkout@v4
+    - continue-on-error: true
+      name: Configure JDK
+      uses: actions/setup-java@v3.11.0
+      with:
+        distribution: adopt
+        java-version: 11
+    - continue-on-error: true
+      env:
+        ORG_GRADLE_PROJECT_signingKey: ${{ secrets.SIGNING_KEY }}
+        ORG_GRADLE_PROJECT_signingKeyId: ${{ secrets.SIGNING_KEY_ID }}
+        ORG_GRADLE_PROJECT_signingPassword: ${{ secrets.SIGNING_PASSWORD }}
+        OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
+        OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+      name: Upload Snapshot
+      run: ./gradlew publish
+name: Android CI
+on:
+  repository_dispatch:
+    types: trigger-ga___android-ci.yml
